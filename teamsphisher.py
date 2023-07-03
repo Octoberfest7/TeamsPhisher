@@ -213,7 +213,7 @@ def getSenderInfo(bearer):
             break
 
     # Add tenantName to our senderInfo data for later
-    senderInfo['tenantName'] = tenantName
+    senderInfo['tenantName'] = senderInfo['userPrincipalName'].split("@")[-1].split(".")[0]
     
     p_success("SUCCESS!")
 
