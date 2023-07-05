@@ -227,8 +227,7 @@ def getSenderInfo(bearer):
 
     # Add tenantName to our senderInfo data for later
     if senderInfo:
-        senderInfo['tenantName'] = tenantName
-        senderInfo['userPrincipalName'].split("@")[-1].split(".")[0]
+        senderInfo['tenantName'] = senderInfo['userPrincipalName'].split("@")[-1].split(".")[0]
         p_success("SUCCESS!")
     else:
         p_err("Could not find the sender's user information!", True)
