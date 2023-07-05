@@ -177,18 +177,21 @@ def getSkypeToken(bearer):
     return json_content.get("tokens").get("skypeToken")
 
 def getSenderInfo(bearer):
-
     p_task("Fetching sender info...")
 
     displayName = None
     userID = None
+    skipToken = None
+    senderInfo = None
 
     headers = {
         "Authorization": "Bearer %s" % (bearer)
     }
 
-    #First request fetches userID associated with our sender/bearer token
-    response = requests.get("https://teams.microsoft.com/api/mt/emea/beta/users/tenants", headers=headers)
+    # First request fetches userID associated with our sender/bearer token
+    response = requests.get(
+        "https://teams.microsoft.com/api/mt/emea/beta/users/tenants",
+        headers=headers)
 
     if response.status_code != 200:
         p_err("Could not retrieve senders userID!", True)
@@ -197,25 +200,38 @@ def getSenderInfo(bearer):
     userID = json.loads(response.text)[0].get('userId')
     tenantName = json.loads(response.text)[0].get('tenantName')
 
-    # Second we need to find the display name associated with our userID
+    # Second, we need to find the display name associated with our userID
     # Enumerate users within sender's tenant and find our matching user
-    response = requests.get("https://teams.microsoft.com/api/mt/emea/beta/users", headers=headers) #/tenants
+    while True:
+        url = "https://teams.microsoft.com/api/mt/emea/beta/users"
+        if skipToken:
+            url += f"?skipToken={skipToken}"
 
-    if response.status_code != 200:
-        p_err("Could not retrieve senders display name!", True)
+        response = requests.get(url, headers=headers)
 
-    users = json.loads(response.text)['users']
+        if response.status_code != 200:
+            p_err("Could not retrieve senders display name!", True)
 
-    #Iterate through retrieved users and find the one that matches our previously retrieved UserID. 
-    for user in users:
-        if user.get('id') == userID:
-            senderInfo = user
+        users_response = json.loads(response.text)
+        users = users_response['users']
+        skipToken = users_response.get('skipToken')
+
+        # Iterate through retrieved users and find the one that matches our previously retrieved UserID.
+        for user in users:
+            if user.get('id') == userID:
+                senderInfo = user
+                break
+
+        if senderInfo or not skipToken:
             break
 
     # Add tenantName to our senderInfo data for later
-    senderInfo['tenantName'] = senderInfo['userPrincipalName'].split("@")[-1].split(".")[0]
-    
-    p_success("SUCCESS!")
+    if senderInfo:
+        senderInfo['tenantName'] = tenantName
+        senderInfo['userPrincipalName'].split("@")[-1].split(".")[0]
+        p_success("SUCCESS!")
+    else:
+        p_err("Could not find the sender's user information!", True)
 
     return senderInfo
 
