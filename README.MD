@@ -47,6 +47,8 @@ It also heavily leans upon [TeamsEnum](https://github.com/sse-secure-systems/Tea
 
 TeamsPhisher seeks to take the best from all of these projects and yield a robust, customizable, and efficient means for authorized Red Team operations to leverage Microsoft Teams for phishing for access scenarios.
 
+See the end of this README for mitigation recommendations.
+
 # Features and demo
 Give TeamsPhisher an attachment, a message, and a list of target Teams users. It will upload the attachment to the sender's Sharepoint, and then iterate through the list of targets.  
 
@@ -235,6 +237,16 @@ If there is not a space in the displayName field (e.g. some orgs might put the U
 With an example UPN like tom.jones@targettenant.onmicrosoft.com, TeamsPhisher will split on the '@' character, and then in the first chunk split on the '.' character and take the first chunk. This would yield a "friendly" name of "Tom" in this case.
 
 This is the extent of how TeamsPhisher will try and identify "friendly" names. Targets like "tomjones@targettenant.onmicrosoft.com" and "AdeleV@targettenant.onmicrosoft.com" will NOT have identified "friendly" names if their displayName fields do not match the parsing convention outline above.
+
+# Mitigation
+
+Organizations can mitigate the risk posed by this vulnerability by managing the options related to external access via the Microsoft Teams admin center under Users -> External access.
+
+![alt text](img/Mitigation.JPG)
+
+Microsoft provides flexibility to organizations to choose the best permissions to fit their needs, including a universal block as well as whitelisting only specific external tenants for communications.
+
+![alt text](img/ExternalOptions.JPG)
 
 # Credits and Acknowledgements 
 
