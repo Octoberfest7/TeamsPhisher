@@ -585,7 +585,7 @@ if __name__ == "__main__":
     # If logging, open file and write commandline + banner
     if args.log:
         dt = datetime.datetime.now()
-        logfile = "%s/%s" % (expanduser("~"), dt.strftime('%H:%M_%d%b%y_teamsphisher.log'))
+        logfile = "%s/%s" % (expanduser("~"), dt.strftime('%H-%M_%d%b%y_teamsphisher.log'))
         fd = open(logfile, 'w')
         fd.write(" ".join(sys.argv) + "\n")
         fd.write(banner)
