@@ -104,7 +104,7 @@ pip3 install msal
 # Usage 
 ```
 usage: teamsphisher.py [-h] -u USERNAME -p PASSWORD -a ATTACHMENT -m MESSAGE (-e EMAIL | -l LIST) [--greeting GREETING] [--securelink] [--personalize]
-                       [--preview] [--delay DELAY] [--nogreeting] [--log]
+                       [--preview] [--delay DELAY] [--nogreeting] [--log] [--sharepoint SHAREPOINT]
 
 options:
   -h, --help            show this help message and exit
@@ -118,6 +118,8 @@ options:
                         A file containing a message to send with attached file.
   -e EMAIL, --targetemail EMAIL
                         Single target email address
+  -s SHAREPOINT, --sharepoint SHAREPOINT
+                        Manually specify sharepoint name (e.g. mytenant.sharepoint.com would be --sharepoint mytenant)
   -l LIST, --list LIST  Full path to a file containing target emails. One per line.
   --greeting GREETING   Override default greeting with a custom one. Use double quotes if including spaces!
   --securelink          Send link to file only viewable by the individual target recipient.
@@ -146,6 +148,9 @@ A file containing the text message that should accompany the attachment and be s
 Either a single target email (e.g. mytargetsname@targettenant.onmicrosoft.com) or a file containing a list of target emails one per line.
 
 ## Optional arguments and features
+
+### Sharepoint
+Manually specify the name of the sharepoint site to upload the attachment to. This will likely be necessary if your sender's tenant uses a custom domain name (e.g. does not follow the xxx.onmicrosoft.com convention). Specify just the unique name, e.g. if your sharepoint site is mytest.sharepoint.com you would use --sharepoint mytest
 
 ### Greeting
 Override TeamPhisher's default greeting ("Hi, ") with a custom one to be prepended to the message specified by --message. For example, "Good afternoon, " or "Sales team, "
@@ -247,6 +252,28 @@ Organizations can mitigate the risk posed by this vulnerability by managing the 
 Microsoft provides flexibility to organizations to choose the best permissions to fit their needs, including a universal block as well as whitelisting only specific external tenants for communications.
 
 ![alt text](img/ExternalOptions.JPG)
+
+# Changelog 
+## v1.0 - Initial release
+
+## v1.1
+There were a few commits made to address various small issues without incrementing the version number; sorry for being sloppy. 
+
+v1.1 brings a few changes aimed at addressing some common issues that users were running into.
+
+### -s, --sharepoint argument
+This optional argument was added so that users can manually specify their sharepoint root name. A common issue arose when users had changed their tenant's domain name to something custom; e.g. rather than their username being tomjones@mytest.onmicrosoft.com, it might be tomjones@mytest.io. The original release of TeamsPhisher assembled the Sharepoint address and required uri paths by parsing the sender's user principal name from their user info. When a tenant's domain is changed to a custom one, user's UPNs change to reflect this. However the tenants sharepoint address will always remain the same/what they were when the tenant was originally created.
+
+I wasn't able to find a good way to resolve the current Sharepoint address for a tenant; it can be done with Graph API easily, but implementing Graph in this tool would require a lot more setup on user's parts in order to use TeamsPhisher. I opted for providing the option to manually specify the sharepoint name as the easiest fix.
+
+### Improved parsing of Sharepoint address and required uri when NOT using manual option
+There was a report from a user who was NOT using a custom domain with their tenant who was still receiving the 404 not found error in regards to Sharepoint. I believe this had to do with their username containing a '.' e.g. tom.jones@mytest.onmicrosoft.com. The prior version of TeamsPhisher had simpler find + replace functionality for the user's UPN in order to assemble the requisite Sharepoint uri's, v1.1 now specifically targets the '.' characters that need to be replaced and will leave other '.' in the username field intact.
+
+### Special characters (.e.g 'ö') within the message body no longer result in a server error
+This was a very simple fix that took way too long to track down. Added utf-8 encoding to the sendFile POST request. Special characters can now be used in messages.
+
+### Minor code cleanup
+Fixed a few comments and re-ordered some steps in main to now check for requisite files before attempting to authenticate.
 
 # Credits and Acknowledgements 
 

