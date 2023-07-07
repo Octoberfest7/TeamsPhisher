@@ -24,7 +24,7 @@ useragent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gec
 fd = None
 
 # version: TeamsPhisher version used in banner
-__version__ = "1.1"
+__version__ = "1.1.1"
 
 def p_err(msg, exit):
     output = Fore.RED + "[-] " + msg + Style.RESET_ALL
@@ -145,7 +145,7 @@ def getBearerToken(username, password, scope):
     except ValueError as err:
         if "This typically happens when attempting MSA accounts" in err.args[0]:
             p_warn("Username/Password authentication cannot be used with Microsoft accounts. Either use the device code authentication flow or try again with a user managed by an organization.")
-        p_error("Error while acquring token", True)
+        p_err("Error while acquring token", True)
 
     # Login not successful
     if "access_token" not in result:
@@ -691,10 +691,10 @@ if __name__ == "__main__":
     # If user-specified sharepoint was provided, assemble using that value otherwise do so using senderInfo
     if args.sharepoint:
         senderSharepointURL = "https://%s-my.sharepoint.com" % (args.sharepoint)
-        senderDrive = "%s_%s_onmicrosoft_com" % (args.username.split("@")[0], args.sharepoint)
+        senderDrive = "%s_%s_onmicrosoft_com" % (args.username.split("@")[0].replace(".", "_").lower(), args.sharepoint)
     else:
         senderSharepointURL = "https://%s-my.sharepoint.com" % senderInfo.get('tenantName')
-        senderDrive = senderInfo.get('userPrincipalName').replace("@", "_").replace(".onmicrosoft", "_onmicrosoft").replace(".com", "_com").lower()
+        senderDrive = senderInfo.get('userPrincipalName').replace("@", "_").replace(".", "_").lower()
 
     # Upload file to sharepoint that will be sent as an attachment in chats
     uploadInfo = uploadFile(sharepointToken, senderSharepointURL, senderDrive, args.attachment)

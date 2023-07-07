@@ -150,7 +150,7 @@ Either a single target email (e.g. mytargetsname@targettenant.onmicrosoft.com) o
 ## Optional arguments and features
 
 ### Sharepoint
-Manually specify the name of the sharepoint site to upload the attachment to. This will likely be necessary if your sender's tenant uses a custom domain name (e.g. does not follow the xxx.onmicrosoft.com convention). Specify just the unique name, e.g. if your sharepoint site is mytest.sharepoint.com you would use --sharepoint mytest
+Manually specify the name of the sharepoint site to upload the attachment to. **This will likely be necessary if your sender's tenant uses a custom domain name (e.g. does not follow the xxx.onmicrosoft.com convention)**. Specify just the unique name, e.g. if your sharepoint site is mytest.sharepoint.com you would use --sharepoint mytest
 
 ### Greeting
 Override TeamPhisher's default greeting ("Hi, ") with a custom one to be prepended to the message specified by --message. For example, "Good afternoon, " or "Sales team, "
@@ -274,6 +274,12 @@ This was a very simple fix that took way too long to track down. Added utf-8 enc
 
 ### Minor code cleanup
 Fixed a few comments and re-ordered some steps in main to now check for requisite files before attempting to authenticate.
+
+## v1.1.1
+Minor fixes
+
+### Reverse change regarding parsing of '.' in usernames when assembling Sharepoint uri
+v.1.1 changed how usernames with the '.' character in them were parsed for the purposes of creating the requisite Sharepoint URI's. There were several distinct issues going on and I mistakenly identified this as the cause of one of them. This change has been reverted. The result is that a username like tom.jones@mytest.onmicrosoft.com will now have a sharepoint uri assembled as "tom_jones_mytest_onmicrosoft_com" rather than "tom.jones_mytest_onmicrosoft_com".
 
 # Credits and Acknowledgements 
 
