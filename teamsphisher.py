@@ -24,7 +24,7 @@ useragent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gec
 fd = None
 
 # version: TeamsPhisher version used in banner
-__version__ = "1.1.1"
+__version__ = "1.1.2"
 
 def p_err(msg, exit):
     output = Fore.RED + "[-] " + msg + Style.RESET_ALL
@@ -210,7 +210,7 @@ def getSenderInfo(bearer):
     while True:
         url = "https://teams.microsoft.com/api/mt/emea/beta/users"
         if skipToken:
-            url += f"?skipToken={skipToken}"
+            url += f"?skipToken={skipToken}&top=999"
 
         response = requests.get(url, headers=headers)
 
@@ -594,6 +594,13 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # Ensure that if a non *.onmicrosoft.com domain was used that use has also specified -s switch
+    # When a user has specified a custom domain (e.g. mytesttenant.com), the sharepoint will still live at whatever the initial .onmicrosoft.com domain was (e.g. mytesttenant.onmicrosoft.com)
+    # However the sharepoint uri will now be user_mytesttesnant_com instead of user_mytesttenant_onmicrosoft_com
+    # The full thing for user@mytesttenant.com should now be https://mytesttenant-my.sharepoint.com/personal/user_mytesttenant_com/...
+    if "onmicrosoft.com" not in args.username and not args.sharepoint:
+        p_err("If your tenant uses a custom domain (e.g. username is NOT myusername@*.onmicrosoft.com) you must use the -s switch and manually specify your sharepoint site name!", True)
+
     # If logging, open file and write commandline + banner
     if args.log:
         dt = datetime.datetime.now()
@@ -691,10 +698,10 @@ if __name__ == "__main__":
     # If user-specified sharepoint was provided, assemble using that value otherwise do so using senderInfo
     if args.sharepoint:
         senderSharepointURL = "https://%s-my.sharepoint.com" % (args.sharepoint)
-        senderDrive = "%s_%s_onmicrosoft_com" % (args.username.split("@")[0].replace(".", "_").lower(), args.sharepoint)
     else:
         senderSharepointURL = "https://%s-my.sharepoint.com" % senderInfo.get('tenantName')
-        senderDrive = senderInfo.get('userPrincipalName').replace("@", "_").replace(".", "_").lower()
+
+    senderDrive = args.username.replace("@", "_").replace(".", "_").lower()
 
     # Upload file to sharepoint that will be sent as an attachment in chats
     uploadInfo = uploadFile(sharepointToken, senderSharepointURL, senderDrive, args.attachment)

@@ -96,6 +96,8 @@ TeamsPhisher requires that users have a Microsoft Business account (as opposed t
 
 This means you will need an AAD tenant and at least one user with a corresponding license. At the time of publication, there are some free trial licenses available in the AAD license center that fulfill the requirements for this tool. 
 
+You will need to log into the personal Sharepoint of the user you are going to be sending messages with at least once prior to using the account with TeamsPhisher. This should be something like tenantname-my.sharepoint.com/personal/myusername_mytenantname_onmicrosoft_com or tenantname-my.sharepoint.com/personal/myusername_mytenantname_mycustomdomain_tld. 
+
 In terms of local requirements, I recommend updating to the latest version of Python3. You will also need Microsoft's authentication library:
 ```
 pip3 install msal
@@ -277,6 +279,15 @@ Fixed a few comments and re-ordered some steps in main to now check for requisit
 
 ## v1.1.1
 Minor fixes
+
+## v1.1.2
+Fixed an error users were reporting in regards to uploading the attachment to Sharepoint; this stemmed from naming/renaming conventions that happen when users use custom domain with their tenants. 
+
+Added a verification check to ensure that if users are using a NON @domain.onmicrosoft.com domain that they also use the -s switch in order to specify their sharepoint site manually to avoid issues.
+
+Updated setup section to include logging into Sharepoint at least once prior to using TeamsPhisher as a user identified that not having logged in before with the account would cause TeamsPhisher to fail.
+
+Added &top=999 parameter to getSenderInfo web request to increase the number of users retrieve per page/decrease number of requests required to find our user
 
 ### Reverse change regarding parsing of '.' in usernames when assembling Sharepoint uri
 v.1.1 changed how usernames with the '.' character in them were parsed for the purposes of creating the requisite Sharepoint URI's. There were several distinct issues going on and I mistakenly identified this as the cause of one of them. This change has been reverted. The result is that a username like tom.jones@mytest.onmicrosoft.com will now have a sharepoint uri assembled as "tom_jones_mytest_onmicrosoft_com" rather than "tom.jones_mytest_onmicrosoft_com".
