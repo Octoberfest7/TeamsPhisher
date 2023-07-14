@@ -27,7 +27,7 @@ fd = None
 __version__ = "1.1.2"
 
 def p_err(msg, exit):
-    output = Fore.RED + "[-] " + msg + Style.RESET_ALL
+    output = f"{Fore.RED}[-] {msg}{Style.RESET_ALL}"
     print(output)
     if fd:
         p_file(output, True)
@@ -35,13 +35,13 @@ def p_err(msg, exit):
         sys.exit(-1)
 
 def p_warn(msg):
-    output = Fore.YELLOW + "[-] " + msg + Style.RESET_ALL
+    output = f"{Fore.YELLOW}[-] {msg}{Style.RESET_ALL}"
     print(output)
     if fd:
         p_file(output, True)
 
 def p_success(msg):
-    output = Fore.GREEN + "[+] " + msg + Style.RESET_ALL
+    output = f"{Fore.GREEN}[+] {msg}{Style.RESET_ALL}"
     print(output)
     if fd:
         p_file(output, True)
@@ -78,27 +78,30 @@ def hashFile(file):
     sha1.update(data)
     sha256.update(data)
 
-    p_success("MD5: %s" % (md5.hexdigest()))
-    p_success("SHA1: %s" % (sha1.hexdigest()))
-    p_success("SHA256: %s" % (sha256.hexdigest()))
+    p_success(f"MD5: {md5.hexdigest()}")
+    p_success(f"SHA1: {sha1.hexdigest()}")
+    p_success(f"SHA256: {sha256.hexdigest()}")
 
 def getTenantID(username):
 
-   domain = username.split("@")[-1]
+    domain = username.split("@")[-1]
 
-   response = requests.get("https://login.microsoftonline.com/%s/.well-known/openid-configuration" % (domain))
+    response = requests.get(
+        f"https://login.microsoftonline.com/{domain}/.well-known/openid-configuration"
+    )
 
-   if response.status_code != 200:
-      p_err("Could not retrieve tenant id for domain %s" % (domain), True)
+    if response.status_code != 200:
+        p_err(f"Could not retrieve tenant id for domain {domain}", True)
 
-   json_content = json.loads(response.text)
-   tenant_id = json_content.get('authorization_endpoint').split("/")[3]
-
-   return tenant_id
+    json_content = json.loads(response.text)
+    return json_content.get('authorization_endpoint').split("/")[3]
 
 def twoFAlogin(username, scope):
     #Values hardcoded for corporate/part of organization users
-    app = PublicClientApplication( "1fec8e78-bce4-4aaf-ab1b-5451cc387264", authority="https://login.microsoftonline.com/%s" % getTenantID(username) )
+    app = PublicClientApplication(
+        "1fec8e78-bce4-4aaf-ab1b-5451cc387264",
+        authority=f"https://login.microsoftonline.com/{getTenantID(username)}",
+    )
 
     try:
         # Initiate the device code authentication flow and print instruction message
@@ -106,14 +109,14 @@ def twoFAlogin(username, scope):
         if "user_code" not in flow:
             p_err("Could not retrieve user code in authentication flow", exit=True)
         p_warn(flow.get("message"))
-    except:
+    except Exception:
         p_err("Could not initiate device code authentication flow", exit=True)
 
     # Initiates authentication based on the previously created flow. Polls the MS endpoint for entered device codes.
     try:
         result = app.acquire_token_by_device_flow(flow)
     except Exception as err:
-        p_err("Error while authenticating: %s" % (err.args[0]), exit=True)
+        p_err(f"Error while authenticating: {err.args[0]}", exit=True)
 
     return result
 
@@ -125,20 +128,21 @@ def getBearerToken(username, password, scope):
     if scope == "https://api.spaces.skype.com/.default":
         p_task("Fetching Bearer token for Teams...")
 
-    # If scope doesn't match the above, we are fetching our Sharepoint Bearer
     else:
         p_task("Fetching Bearer token for SharePoint...")
 
         # If scope was passed in as a dictionary, we are assembling our sharepoint domain automagically using the UPN from senderInfo
         if isinstance(scope, dict):
-            scope = 'https://%s-my.sharepoint.com/.default' % scope.get('tenantName')
-        
-        # Otherwise scope was passed in as a user-defined option
+            scope = f"https://{scope.get('tenantName')}-my.sharepoint.com/.default"
+
         else:
-            scope = 'https://%s-my.sharepoint.com/.default' % scope
+            scope = f'https://{scope}-my.sharepoint.com/.default'
 
     #Values hardcoded for corporate/part of organization users
-    app = PublicClientApplication( "1fec8e78-bce4-4aaf-ab1b-5451cc387264", authority="https://login.microsoftonline.com/%s" % getTenantID(username) )
+    app = PublicClientApplication(
+        "1fec8e78-bce4-4aaf-ab1b-5451cc387264",
+        authority=f"https://login.microsoftonline.com/{getTenantID(username)}",
+    )
     try:
         # Initiates authentication based on credentials.
         result = app.acquire_token_by_username_password(username, password, scopes=[scope])
@@ -164,8 +168,8 @@ def getBearerToken(username, password, scope):
 def getSkypeToken(bearer):
 
     p_task("Fetching Skype token...")
-    
-    headers = {"Authorization": "Bearer " + bearer}
+
+    headers = {"Authorization": f"Bearer {bearer}"}
 
     # Requests a Skypetoken
     # https://digitalworkplace365.wordpress.com/2021/01/04/using-the-ms-teams-native-api-end-points/
@@ -189,9 +193,7 @@ def getSenderInfo(bearer):
     skipToken = None
     senderInfo = None
 
-    headers = {
-        "Authorization": "Bearer %s" % (bearer)
-    }
+    headers = {"Authorization": f"Bearer {bearer}"}
 
     # First request fetches userID associated with our sender/bearer token
     response = requests.get(
@@ -264,20 +266,19 @@ def findFriendlyName(targetInfo):
 
     # Check for a space in the display name for an easy win i.e. "Tom Jones"
     if " " in targetInfo.get('displayName'):
-        friendlyName = targetInfo.get('displayName').split(" ")[0].capitalize()
-    
-    # Next we are going to do some guesswork with their UPN i.e. "tom.jones@mytest.onmicrosoft.com"
-    elif "@" in targetInfo.get('userPrincipalName'):
-        if "." in targetInfo.get('userPrincipalName').split("@"):
-            friendlyName = targetInfo.get('userPrincipalName').split("@")[0].split(".")[0].capitalize()
-        else:
-            friendlyName = targetInfo.get('userPrincipalName').split("@")[0].capitalize()
-        
-    # Otherwise give up...
-    else:
-        friendlyName = None
+        return targetInfo.get('displayName').split(" ")[0].capitalize()
 
-    return friendlyName
+    elif "@" in targetInfo.get('userPrincipalName'):
+        return (
+            targetInfo.get('userPrincipalName')
+            .split("@")[0]
+            .split(".")[0]
+            .capitalize()
+            if "." in targetInfo.get('userPrincipalName').split("@")
+            else targetInfo.get('userPrincipalName').split("@")[0].capitalize()
+        )
+    else:
+        return None
     
 def jsonifyMessage(message):
     
@@ -291,23 +292,26 @@ def jsonifyMessage(message):
     # Iterate through lines in message and add proper formatting tags in order to preserve newlines
     for line in lines:
         if line == "\n":
-            jsonMessage = jsonMessage + "<p>&nbsp;</p>"
+            jsonMessage = f"{jsonMessage}<p>&nbsp;</p>"
         else:
-            jsonMessage = jsonMessage + "<p>%s</p>" % (line)
+            jsonMessage = f"{jsonMessage}<p>{line}</p>"
 
     return jsonMessage
 
 def enumUser(bearer, email):
 
     headers = {
-        "Authorization": "Bearer " + bearer,
+        "Authorization": f"Bearer {bearer}",
         "X-Ms-Client-Version": "1415/1.0.0.2023031528",
-        "User-Agent": useragent
+        "User-Agent": useragent,
     }
 
     user = {'email':email}
 
-    content = requests.get("https://teams.microsoft.com/api/mt/emea/beta/users/%s/externalsearchv3?includeTFLUsers=true" % (email), headers=headers)
+    content = requests.get(
+        f"https://teams.microsoft.com/api/mt/emea/beta/users/{email}/externalsearchv3?includeTFLUsers=true",
+        headers=headers,
+    )
 
     if content.status_code == 403:
         p_warn("User exists but the target tenant or your tenant disallow communication to external domains.")
@@ -316,30 +320,29 @@ def enumUser(bearer, email):
     if content.status_code == 401:
         p_err("Unable to enumerate user. Is the access token valid?", True)
 
-    if content.status_code != 200 or ( content.status_code == 200 and len(content.text) < 3 ):
+    if content.status_code != 200 or len(content.text) < 3:
         p_warn("Unable to enumerate user. User does not exist, is not Teams-enrolled, is part of senders tenant, or is configured to not appear in search results.")
         return None
 
     user_profile = json.loads(content.text)[0]
-    if "sfb" in user_profile['mri']:
-        p_warn("This user has a Skype for Business subscription and cannot be sent files.")
-        return None
-    else:
+    if "sfb" not in user_profile['mri']:
         return user_profile
+    p_warn("This user has a Skype for Business subscription and cannot be sent files.")
+    return None
 
 def uploadFile(sharepointToken, senderSharepointURL, senderDrive, attachment):
 
-    p_task("Uploading file: %s" % (attachment))
+    p_task(f"Uploading file: {attachment}")
 
     # Assemble upload URL
     url = "%s/personal/%s/_api/v2.0/drive/root:/Microsoft%%20Teams%%20Chat%%20Files/%s:/content?@name.conflictBehavior=replace&$select=*,sharepointIds,webDavUrl" % (senderSharepointURL, senderDrive, os.path.basename(attachment))
 
     headers = {
-        "Authorization": "Bearer " + sharepointToken,
+        "Authorization": f"Bearer {sharepointToken}",
         "User-Agent": useragent,
         "Content-Type": "application/octet-stream",
         "Origin": "https://teams.microsoft.com",
-        "Referer": "https://teams.microsoft.com/"
+        "Referer": "https://teams.microsoft.com/",
     }
 
     # Read local file
@@ -350,7 +353,7 @@ def uploadFile(sharepointToken, senderSharepointURL, senderDrive, attachment):
     content = requests.put(url, headers=headers, data=contents)
 
     # Seem to have seen both of these codes for file uploads...
-    if content.status_code != 201 and content.status_code != 200:
+    if content.status_code not in [201, 200]:
         p_err("Error uploading file: %d" % (content.status_code), True)
 
     # Parse out the uploadID. We will need this to craft our invite link
@@ -363,11 +366,11 @@ def uploadFile(sharepointToken, senderSharepointURL, senderDrive, attachment):
 def createThread(skypeToken, senderInfo, targetInfo):
 
     headers = {
-        "Authentication": "skypetoken=" + skypeToken,
+        "Authentication": f"skypetoken={skypeToken}",
         "User-Agent": useragent,
         "Content-Type": "application/json",
         "Origin": "https://teams.microsoft.com",
-        "Referer": "https://teams.microsoft.com/"
+        "Referer": "https://teams.microsoft.com/",
     }
 
     # Body of new thread request.
@@ -382,22 +385,19 @@ def createThread(skypeToken, senderInfo, targetInfo):
         p_warn("Error creating chat: %d" % (content.status_code))
         return None
 
-    threadID = content.headers.get('Location').split("/")[-1]
-
-    return threadID
+    return content.headers.get('Location').split("/")[-1]
 
 def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, attachment, message, personalize, nogreeting):
 
     # Sending a real message to a target
     if threadID:
-        url = "https://amer.ng.msg.teams.microsoft.com/v1/users/ME/conversations/" + threadID + "/messages"
-    
-    # Sending a test message to ourselves
+        url = f"https://amer.ng.msg.teams.microsoft.com/v1/users/ME/conversations/{threadID}/messages"
+
     else:
         url = "https://amer.ng.msg.teams.microsoft.com/v1/users/ME/conversations/48%3Anotes/messages"
 
     headers = {
-        "Authentication": "skypetoken=" + skypeToken,
+        "Authentication": f"skypetoken={skypeToken}",
         "User-Agent": useragent,
         "Content-Type": "application/json, Charset=UTF-8",
         "Origin": "https://teams.microsoft.com",
@@ -410,16 +410,14 @@ def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSha
     # If --nogreeting specified, initialize introduction
     if nogreeting:
         introduction = ""
-    # Otherwise standard behavior is to use pre-set greeting 
     else:
         # Initialize standard greeting
-        introduction = "<p>%s,</p><p>&nbsp;</p>" % (Greeting)
+        introduction = f"<p>{Greeting},</p><p>&nbsp;</p>"
 
         # If personalizing, try and fetch friendly name for target and add to greeting
         if personalize:
-            friendlyName = findFriendlyName(targetInfo)
-            if friendlyName:
-                introduction = "<p>%s %s,</p><p>&nbsp;</p>" % (Greeting, friendlyName)
+            if friendlyName := findFriendlyName(targetInfo):
+                introduction = f"<p>{Greeting} {friendlyName},</p><p>&nbsp;</p>"
 
     # Assemble final message
     assembledMessage = introduction + jsonMsg
@@ -437,7 +435,7 @@ def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSha
             "subject": ""
         }
     }""" % (assembledMessage, uploadInfo.get('sharepointIds').get('listItemUniqueId'), senderSharepointURL, senderDrive, attachment.split(".")[-1], os.path.basename(attachment), senderSharepointURL, senderDrive, os.path.basename(attachment), uploadInfo.get('sharepointIds').get('listItemUniqueId'), os.path.basename(attachment), attachment.split(".")[-1], senderSharepointURL, senderDrive, os.path.basename(attachment), senderSharepointURL, senderDrive, inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('Url'), inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('ShareId'))
-    
+
     # Send Message
     content = requests.post(url, headers=headers, data=body.encode(encoding='utf-8'))
 
@@ -455,7 +453,7 @@ def getInviteLink(sharepointToken, senderSharepointURL, senderDrive, senderInfo,
     url = "%s/personal/%s/_api/web/GetFileById(@a1)/ListItemAllFields/ShareLink?@a1=guid%%27%s%%27" % (senderSharepointURL, senderDrive, uploadID)
 
     headers = {
-        "Authorization": "Bearer " + sharepointToken,
+        "Authorization": f"Bearer {sharepointToken}",
         "User-Agent": useragent,
         "Accept": "application/json;odata=verbose",
         "Content-Type": "application/json;odata=verbose",
@@ -482,11 +480,7 @@ def getInviteLink(sharepointToken, senderSharepointURL, senderDrive, senderInfo,
             "password": "",
             "scope": 2"""
 
-    if(secureLink):
-        settings = secure
-    else:
-        settings = unsecure
-
+    settings = secure if secureLink else unsecure
     # If sender and target info match, this is a test message. Use single recipient PPI
     if(senderInfo == targetInfo):
         # Stitch body together
@@ -501,7 +495,7 @@ def getInviteLink(sharepointToken, senderSharepointURL, senderDrive, senderInfo,
             }
         }
         """ % (settings, senderInfo.get('userPrincipalName'), senderInfo.get('displayName'), senderInfo.get('userPrincipalName'), senderInfo.get('userPrincipalName'), senderInfo.get('id'))
-    
+
     else:
         # Stitch body together
         body = """
@@ -525,10 +519,7 @@ def getInviteLink(sharepointToken, senderSharepointURL, senderDrive, senderInfo,
         print(content.text)
         return None
 
-    # Parse out the sharing URL that we need to send to our user
-    inviteInfo = json.loads(content.text)
-
-    return inviteInfo
+    return json.loads(content.text)
 
 
 banner = """
