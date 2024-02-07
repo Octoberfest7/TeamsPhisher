@@ -408,8 +408,7 @@ def removeExternalUser(skypeToken, senderInfo, threadID, targetInfo):
 
     # Delete the target user from the thread
     content = requests.delete(f"https://amer.ng.msg.teams.microsoft.com/v1/threads/{threadID}/members/{targetInfo.get('mri')}", headers=headers)
-    print(content.text)
-    if content.status_code != 204:
+    if content.status_code != 204 and content.status_code != 200:
         p_warn("Error removing user: %d" % (content.status_code))
         p_warn(content.text)
         return None
