@@ -25,7 +25,7 @@ useragent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gec
 fd = None
 
 # version: TeamsPhisher version used in banner
-__version__ = "1.1.2"
+__version__ = "1.2"
 
 def p_err(msg, exit):
     output = Fore.RED + "[-] " + msg + Style.RESET_ALL

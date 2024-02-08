@@ -34,7 +34,7 @@
                     | ||  __/| (_| || | | | | |\__ \| |    | | | || |\__ \| | | ||  __/| |   
                     \_  \___| \__,_||_| |_| |_||___/\_|    |_| |_||_||___/|_| |_| \___||_|   
                   
-                    v1.0 developed by @Octoberfest73 (https://github.com/Octoberfest7)
+                    v1.2 developed by @Octoberfest73 (https://github.com/Octoberfest7)
 ```
 # Introduction 
 TeamsPhisher is a Python3 program that facilitates the delivery of phishing messages and attachments to Microsoft Teams users whose organizations allow external communications.
@@ -52,11 +52,11 @@ See the end of this README for mitigation recommendations.
 # Features and demo
 Give TeamsPhisher an attachment, a message, and a list of target Teams users. It will upload the attachment to the sender's Sharepoint, and then iterate through the list of targets.  
 
-TeamsPhisher will first enumerate the target user and ensure that the user exists and can receive external messages. It will then create a new thread with the target user. Note this is technically a "group" chat because TeamsPhisher includes the target's email twice; this is a neat trick from @Medu554 that will bypass the "Someone outside your organization messaged you, are you sure you want to view it" splash screen that can give our targets reason for pause.  
+TeamsPhisher will first enumerate the target user and ensure that the user exists and can receive external messages. It will then create a new thread with the target user. Note this is technically a "group" chat because TeamsPhisher includes the target's email twice; this is a neat trick from @Medu554 that will bypass the "Someone outside your organization messaged you, are you sure you want to view it" splash screen that can give our targets reason for pause. **(v1.2)Note: this splash screen bypass was patched, but adding the target user to a group chat is still relevant to the current splash screen bypass.**
 
 With the new thread created between our sender and the target, the specified message will be sent to the user along with a link to the attachment in Sharepoint.  
 
-Once this initial message has been sent, the created thread will be visible in the sender's Teams GUI and can be interacted with manually if need be on a case-by-case basis.  
+Once this initial message has been sent, the target user will be removed from the created group chat. This removes the sender's ability to further message the target, but it also removes the "This person is from outside your organization" splash screen and makes success much more likely. This current bypass was published by @pfiatde in [one of his many blogs concerning Teams and unintended behavior](https://badoption.eu/blog/2024/01/12/teams5.html) and integrated into TeamsPhisher by Steve Nelson (@stevesec128) and Alex Martirosyan (@almartiros) of DenSecure.  
 
 ## Operational mode
 Run TeamsPhisher for real. Send phishing messages to targets.
@@ -255,8 +255,28 @@ Microsoft provides flexibility to organizations to choose the best permissions t
 
 ![alt text](img/ExternalOptions.JPG)
 
-# Changelog 
-## v1.0 - Initial release
+# Changelog  
+## v1.2
+Merges a pull request from the team at DenSecure that includes a working (as of 2/7/24) external user splash screen bypass.
+
+The change to the TeamsPhisher workflow is luckily very minor and easy to integrate. After the group chat has been created with a target user and the message sent, an additional request is made to remove the target user from the group chat. This results in the user receiving the message without an external user splash screen.  
+
+Update README with more current information regarding the technique currently used by TeamsPhisher.  
+
+## v1.1.2
+Fixed an error users were reporting in regards to uploading the attachment to Sharepoint; this stemmed from naming/renaming conventions that happen when users use custom domain with their tenants. 
+
+Added a verification check to ensure that if users are using a NON @domain.onmicrosoft.com domain that they also use the -s switch in order to specify their sharepoint site manually to avoid issues.
+
+Updated setup section to include logging into Sharepoint at least once prior to using TeamsPhisher as a user identified that not having logged in before with the account would cause TeamsPhisher to fail.
+
+Added &top=999 parameter to getSenderInfo web request to increase the number of users retrieve per page/decrease number of requests required to find our user. 
+
+### Reverse change regarding parsing of '.' in usernames when assembling Sharepoint uri
+v.1.1 changed how usernames with the '.' character in them were parsed for the purposes of creating the requisite Sharepoint URI's. There were several distinct issues going on and I mistakenly identified this as the cause of one of them. This change has been reverted. The result is that a username like tom.jones@mytest.onmicrosoft.com will now have a sharepoint uri assembled as "tom_jones_mytest_onmicrosoft_com" rather than "tom.jones_mytest_onmicrosoft_com".  
+
+## v1.1.1
+Minor fixes  
 
 ## v1.1
 There were a few commits made to address various small issues without incrementing the version number; sorry for being sloppy. 
@@ -275,22 +295,9 @@ There was a report from a user who was NOT using a custom domain with their tena
 This was a very simple fix that took way too long to track down. Added utf-8 encoding to the sendFile POST request. Special characters can now be used in messages.
 
 ### Minor code cleanup
-Fixed a few comments and re-ordered some steps in main to now check for requisite files before attempting to authenticate.
+Fixed a few comments and re-ordered some steps in main to now check for requisite files before attempting to authenticate.  
 
-## v1.1.1
-Minor fixes
-
-## v1.1.2
-Fixed an error users were reporting in regards to uploading the attachment to Sharepoint; this stemmed from naming/renaming conventions that happen when users use custom domain with their tenants. 
-
-Added a verification check to ensure that if users are using a NON @domain.onmicrosoft.com domain that they also use the -s switch in order to specify their sharepoint site manually to avoid issues.
-
-Updated setup section to include logging into Sharepoint at least once prior to using TeamsPhisher as a user identified that not having logged in before with the account would cause TeamsPhisher to fail.
-
-Added &top=999 parameter to getSenderInfo web request to increase the number of users retrieve per page/decrease number of requests required to find our user
-
-### Reverse change regarding parsing of '.' in usernames when assembling Sharepoint uri
-v.1.1 changed how usernames with the '.' character in them were parsed for the purposes of creating the requisite Sharepoint URI's. There were several distinct issues going on and I mistakenly identified this as the cause of one of them. This change has been reverted. The result is that a username like tom.jones@mytest.onmicrosoft.com will now have a sharepoint uri assembled as "tom_jones_mytest_onmicrosoft_com" rather than "tom.jones_mytest_onmicrosoft_com".
+## v1.0 - Initial release
 
 # Credits and Acknowledgements 
 
@@ -300,8 +307,10 @@ v.1.1 changed how usernames with the '.' character in them were parsed for the p
 
 3. Bastian Kanbach (@_bka_) of SSE for [TeamsEnum](https://github.com/sse-secure-systems/TeamsEnum). This project served as a starting point for retrieving Bearer tokens and authenticating via different methods. I had used Graph API for these purposes, but his project (and this one) uses the normal endpoints so it was great having someone who had already fought through this and had reliable functions to accomplish it. 
 
-4. @pfiatde who has a [three-part series on Teams phishing](https://badoption.eu/blog/2023/06/30/teams3.html). While nothing was directly used from these articles, there is a lot of good additional tradecraft and considerations that should be looked at. 
+4. @pfiatde who has a [many-part series on Teams phishing](https://badoption.eu/blog/2024/01/12/teams5.html). His blogs were referenced during the original development of TeamsPhisher, and the current version of the tool uses a new splash screen bypass from later research that he released.  
 
-5. [This site for generating ASCII text](https://patorjk.com/software/taag/#p=display&f=Graffiti&t=Type%20Something%20)
+5. Steve Nelson (@stevesec128) and Alex Martirosyan (@almartiros) of DenSecure for their update to Teamsphisher (2/7/24) that integrated the still-working splash screen bypass from @pfiatde.  
 
-6. [This crazy project for converting images to ASCII art](https://github.com/TheZoraiz/ascii-image-converter)
+6. [This site for generating ASCII text](https://patorjk.com/software/taag/#p=display&f=Graffiti&t=Type%20Something%20)
+
+7. [This crazy project for converting images to ASCII art](https://github.com/TheZoraiz/ascii-image-converter)
