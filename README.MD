@@ -129,6 +129,7 @@ options:
   --preview             Run in preview mode. See personalized names for targets and send test message to sender's Teams.
   --delay DELAY         Delay in [s] between each attempt. Default: 0
   --nogreeting          Do not use built in greeting or personalized names, only send message specified with --message
+  --spoofile SPOOFILE   Spoof the type of file shown in Teams client. Any extension is allowed, but recommended options are: docx, xlsx, pptx and jpg.
   --log                 Write TeamsPhisher output to logfile
 ```
 
@@ -171,6 +172,9 @@ Specify a x second delay between messages to targets. Can help with potential ra
 
 ### Nogreeting
 Disable the built-in greeting used by TeamsPhisher. Also disables the --personalize feature. Use this option if you are including your greeting within the message specified by --message.
+
+### Spoofile
+Spoof the file type and extension shown in the Teams channel. Any provided extension is allowed, but recommended ones are: docx, xlsx, pptx, pdf and jpg.
 
 ### Log
 Write TeamsPhisher output to a log file (will write to users home directory).
